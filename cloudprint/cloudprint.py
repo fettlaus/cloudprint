@@ -16,12 +16,12 @@
 # You should have received a copy of the GNU General Public License
 # along with cloudprint.  If not, see <http://www.gnu.org/licenses/>.
 
-import rest
 import platform
+import base64
 import cups
 import hashlib
 import time
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 import tempfile
 import shutil
 import os
@@ -34,7 +34,7 @@ import re
 import logging
 import logging.handlers
 
-import xmpp
+from . import xmpp, rest
 
 XMPP_SERVER_HOST = 'talk.google.com'
 XMPP_USE_SSL = True
@@ -107,9 +107,9 @@ class CloudPrintProxy(object):
                     },
                     'application/x-www-form-urlencoded')
                 jid = self.username if '@' in self.username else self.username + '@gmail.com'
-                sasl_token = ('\0%s\0%s' % (jid, xmpp_response['Auth'])).encode('base64')
-                file(self.xmpp_auth_path, 'w').write(sasl_token)
-            except rest.REST.RESTException, e:
+                sasl_token = base64.b64encode(('\0%s\0%s' % (jid, xmpp_response['Auth'])).encode('utf-8')).decode('utf-8')
+                open(self.xmpp_auth_path, 'w').write(sasl_token)
+            except rest.REST.RESTException as e:
                 if 'InvalidSecondFactor' in e.msg:
                     raise rest.REST.RESTException(
                         '2-Step',
@@ -337,12 +337,11 @@ def sync_printers(cups_connection, cpp):
     #New printers
     for printer_name in local_printer_names - remote_printer_names:
         try:
-            ppd_file = open(cups_connection.getPPD(printer_name))
+            ppd_file = open(cups_connection.getPPD(printer_name), encoding = 'utf-8')
             ppd = ppd_file.read()
             ppd_file.close()
             #This is bad it should use the LanguageEncoding in the PPD
             #But a lot of utf-8 PPDs seem to say they are ISOLatin1
-            ppd = ppd.decode('utf-8')
             description = cups_connection.getPrinterAttributes(printer_name)['printer-info']
             cpp.add_printer(printer_name, description, ppd)
         except (cups.IPPError, UnicodeDecodeError):
@@ -350,15 +349,9 @@ def sync_printers(cups_connection, cpp):
 
     #Existing printers
     for printer_name in local_printer_names & remote_printer_names:
-        ppd_file = open(cups_connection.getPPD(printer_name))
+        ppd_file = open(cups_connection.getPPD(printer_name), encoding = 'utf-8')
         ppd = ppd_file.read()
         ppd_file.close()
-        #This is bad it should use the LanguageEncoding in the PPD
-        #But a lot of utf-8 PPDs seem to say they are ISOLatin1
-        try:
-            ppd = ppd.decode('utf-8')
-        except UnicodeDecodeError:
-            pass
         description = cups_connection.getPrinterAttributes(printer_name)['printer-info']
         remote_printers[printer_name].update(description, ppd)
 
@@ -367,37 +360,37 @@ def sync_printers(cups_connection, cpp):
         remote_printers[printer_name].delete()
 
 def process_job(cups_connection, cpp, printer, job):
-    request = urllib2.Request(job['fileUrl'], headers={
+    request = urllib.request.Request(job['fileUrl'], headers={
         'X-CloudPrint-Proxy' : 'ArmoooIsAnOEM',
         'Authorization' : 'GoogleLogin auth=%s' % cpp.get_auth()
     })
 
     try:
-        pdf = urllib2.urlopen(request)
+        pdf = urllib.request.urlopen(request)
         tmp = tempfile.NamedTemporaryFile(delete=False)
         shutil.copyfileobj(pdf, tmp)
         tmp.flush()
 
-        request = urllib2.Request(job['ticketUrl'], headers={
+        request = urllib.request.Request(job['ticketUrl'], headers={
             'X-CloudPrint-Proxy' : 'ArmoooIsAnOEM',
             'Authorization' : 'GoogleLogin auth=%s' % cpp.get_auth()
         })
-        options = json.loads(urllib2.urlopen(request).read())
+        options = json.loads(urllib.request.urlopen(request).read().decode('utf-8'))
         if 'request' in options: del options['request']
-        options = dict( (str(k), str(v)) for k, v in options.items() )
+        options = dict( (str(k), str(v)) for k, v in list(options.items()) )
 
         cpp.finish_job(job['id'])
 
         cups_connection.printFile(printer.name, tmp.name, job['title'], options)
         os.unlink(tmp.name)
-        LOGGER.info('SUCCESS ' + job['title'].encode('unicode-escape'))
+        LOGGER.info('SUCCESS ' + job['title'])
 
     except:
         cpp.fail_job(job['id'])
-        LOGGER.error('ERROR ' + job['title'].encode('unicode-escape'))
+        LOGGER.error('ERROR ' + job['title'])
 
 def process_jobs(cups_connection, cpp, printers):
-    xmpp_auth = file(cpp.xmpp_auth_path).read()
+    xmpp_auth = open(cpp.xmpp_auth_path).read()
     xmpp_conn = xmpp.XmppConnection(keepalive_period=KEEPALIVE)
 
     while True:
@@ -484,7 +477,7 @@ def main():
     # Check if password authentification is needed
     if not cpp.get_saved_auth():
         if args.authfile is None or not os.path.exists(args.authfile):
-          cpp.username = raw_input('Google username: ')
+          cpp.username = input('Google username: ')
           cpp.password = getpass.getpass()
 
     cpp.include = args.include
@@ -495,7 +488,7 @@ def main():
         try:
             sync_printers(cups_connection, cpp)
             break
-        except rest.REST.RESTException, e:
+        except rest.REST.RESTException as e:
             #not a auth error
             if e.code != 403:
                 raise
@@ -514,8 +507,8 @@ def main():
         try:
             from daemon import runner
         except ImportError:
-            print 'daemon module required for -d'
-            print '\tyum install python-daemon, or apt-get install python-daemon, or pip install python-daemon'
+            print('daemon module required for -d')
+            print('\tyum install python-daemon, or apt-get install python-daemon, or pip install python-daemon')
             sys.exit(1)
 
         app = App(cups_connection=cups_connection,

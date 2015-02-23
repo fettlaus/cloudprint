@@ -15,13 +15,10 @@
 # You should have received a copy of the GNU General Public License
 # along with cloudprint.  If not, see <http://www.gnu.org/licenses/>.
 
-import httplib
+import http.client
 import json
-import urllib
-import urlparse
-import UserDict
-import UserList
-import UserString
+import urllib.request, urllib.parse, urllib.error
+import collections
 
 class REST:
     class RESTException(Exception):
@@ -39,29 +36,29 @@ class REST:
     CONTENT_ENCODE = {
         'text/json' : lambda x: json.dumps(x, encoding='UTF-8'),
         'application/json' : lambda x: json.dumps(x, encoding='UTF-8'),
-        'application/x-www-form-urlencoded' : urllib.urlencode,
+        'application/x-www-form-urlencoded' : urllib.parse.urlencode,
     }
 
     CONTENT_DECODE = {
         'text/json' : json.loads,
         'application/json' : json.loads,
-        'application/x-www-form-urlencoded' : lambda x : dict( (k, v[0] ) for k, v in [urlparse.parse_qs(x).items()]),
+        'application/x-www-form-urlencoded' : lambda x : dict( (k, v[0] ) for k, v in [list(urllib.parse.parse_qs(x).items())]),
         'text/plain' : lambda x : dict( l.split('=') for l in x.strip().split('\n') ),
     }
 
     RESULT_WRAPTERS = {
-        type({}) : UserDict.UserDict,
-        type([]) : UserList.UserList,
-        type('') : UserString.UserString,
-        type(u'') : UserString.UserString,
+        type({}) : collections.UserDict,
+        type([]) : collections.UserList,
+        type('') : collections.UserString,
+        type('') : collections.UserString,
     }
 
     def __init__(self, host, auth=None, debug=False):
         proto, host = host.split('://')
         if proto == 'https':
-            self._conn = httplib.HTTPSConnection(host)
+            self._conn = http.client.HTTPSConnection(host)
         else:
-            self._conn = httplib.HTTPConnection(host)
+            self._conn = http.client.HTTPConnection(host)
         self.debug = debug
         if debug:
             self._conn.set_debuglevel(10)
@@ -87,16 +84,16 @@ class REST:
                 content_type = response_type
             else:
                 content_type = resp.getheader('Content-Type')
-        except httplib.BadStatusLine, e:
+        except http.client.BadStatusLine as e:
             if not e.line:
                 self._conn.close()
                 return self.rest_call(verb, path, data)
             else:
                 raise
 
-        data = resp.read()
+        data = resp.read().decode('utf-8')
         if self.debug:
-            print data
+            print(data)
         if resp.status != 200:
             try:
                 error = self.CONTENT_DECODE[content_type](data)

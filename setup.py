@@ -25,6 +25,7 @@ setup(
         'License :: OSI Approved :: GNU General Public License (GPL)',
     ],
     packages=find_packages(exclude=['ez_setup']),
+    install_requires = ['pycups'],
     entry_points = {
         'console_scripts': [
             'cloudprint = cloudprint.cloudprint:main',

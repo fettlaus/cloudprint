@@ -92,7 +92,7 @@ class XmppConnection(object):
         LOGGER.debug('>>> %s' % msg)
         try:
             self._nextkeepalive = time.time() + self._keepalive_period
-            self._wrappedsock.sendall(msg)
+            self._wrappedsock.sendall(msg.encode('utf-8'))
         except:
             self._connected = False
             raise
@@ -149,7 +149,8 @@ class XmppConnection(object):
             self._msg('<iq type="set" id="2"><session xmlns="urn:ietf:params:xml:ns:xmpp-session"/></iq>')
             self._msg('<iq type="set" id="3" to="%s"><subscribe xmlns="google:push"><item channel="cloudprint.google.com" from="cloudprint.google.com"/></subscribe></iq>' % bare_jid)
         except:
-            self.close()
+            #self.close()
+            print('Unexpected error:', sys.exc_info()[0])
             raise
 
         LOGGER.info("xmpp connection established")
@@ -205,7 +206,7 @@ class XmppConnection(object):
                 if waittime < 0:
                     waittime = 0
 
-                sock = self._xmppsock
+                sock = self._wrappedsock
                 (r, w, e) = select.select([sock], [], [sock], waittime)
 
                 now = time.time()
